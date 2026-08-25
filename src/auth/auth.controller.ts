@@ -11,14 +11,14 @@ import {
 } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Response } from 'express';
+import { AuthenticatedRequest } from './auth-user.interface';
 import {
   AUTH_SESSION_COOKIE,
   GOOGLE_OAUTH_RETURN_TO_COOKIE,
   GOOGLE_OAUTH_STATE_COOKIE,
 } from './auth.constants';
-import { OptionalJwtAuthGuard } from './optional-jwt-auth.guard';
 import { AuthService } from './auth.service';
-import { AuthenticatedRequest } from './auth-user.interface';
+import { OptionalJwtAuthGuard } from './optional-jwt-auth.guard';
 
 @Controller('auth')
 @SkipThrottle()
@@ -70,7 +70,8 @@ export class AuthController {
         this.authService.getOAuthStateCookieOptions(),
       );
       const returnTo = request.cookies?.[GOOGLE_OAUTH_RETURN_TO_COOKIE] as
-        string | undefined;
+        | string
+        | undefined;
       response.clearCookie(
         GOOGLE_OAUTH_RETURN_TO_COOKIE,
         this.authService.getOAuthStateCookieOptions(),
@@ -85,7 +86,8 @@ export class AuthController {
           typeof returnTo === 'string' && returnTo.includes('?') ? '&' : '?'
         }auth=success`,
       );
-    } catch {
+    } catch (error) {
+      console.error('Google OAuth login failed.', error);
       response.clearCookie(
         GOOGLE_OAUTH_STATE_COOKIE,
         this.authService.getOAuthStateCookieOptions(),
