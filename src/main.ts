@@ -1,12 +1,12 @@
-import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { NestFactory } from '@nestjs/core';
+import { Express } from 'express';
+import { AppModule } from './app.module';
 // cookie-parser uses TypeScript's `export =` declaration; this import preserves
 // its callable CommonJS shape under the Node runtime used by Nest.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import cookieParser = require('cookie-parser');
-import { Express } from 'express';
-import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -30,6 +30,6 @@ async function bootstrap() {
       .map((origin) => origin.trim()),
   });
 
-  await app.listen(Number(config.get<string>('PORT') ?? 3000));
+  await app.listen(Number(config.get<string>('PORT') ?? 3000), '0.0.0.0');
 }
 void bootstrap();
