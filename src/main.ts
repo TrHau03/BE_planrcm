@@ -30,6 +30,6 @@ async function bootstrap() {
       .map((origin) => origin.trim()),
   });
 
-  await app.listen(Number(config.get<string>('PORT') ?? 3000), '0.0.0.0');
+  await app.listen(Number(config.get<string>('PORT') ?? 8080), '0.0.0.0');
 }
 void bootstrap();
