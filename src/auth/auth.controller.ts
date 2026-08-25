@@ -87,7 +87,6 @@ export class AuthController {
         }auth=success`,
       );
     } catch (error) {
-      console.error('Google OAuth login failed.', error);
       response.clearCookie(
         GOOGLE_OAUTH_STATE_COOKIE,
         this.authService.getOAuthStateCookieOptions(),
@@ -97,6 +96,7 @@ export class AuthController {
         this.authService.getOAuthStateCookieOptions(),
       );
       response.redirect(`${this.authService.getFrontendUrl()}/?auth=failed`);
+      throw error;
     }
   }
 

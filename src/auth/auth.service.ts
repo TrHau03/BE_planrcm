@@ -5,11 +5,11 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { CookieOptions } from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { CookieOptions } from 'express';
-import { SESSION_MAX_AGE_MS } from './auth.constants';
 import { AuthenticatedUser } from './auth-user.interface';
+import { SESSION_MAX_AGE_MS } from './auth.constants';
 
 type GoogleOAuthConfiguration = {
   clientId: string;
@@ -133,8 +133,8 @@ export class AuthService {
       httpOnly: true,
       maxAge: SESSION_MAX_AGE_MS,
       path: '/',
-      sameSite: 'lax',
-      secure: this.config.get<string>('NODE_ENV') === 'production',
+      sameSite: this.isProduction() ? 'none' : 'lax',
+      secure: this.isProduction(),
     };
   }
 
@@ -146,6 +146,10 @@ export class AuthService {
       sameSite: 'lax',
       secure: this.config.get<string>('NODE_ENV') === 'production',
     };
+  }
+
+  private isProduction(): boolean {
+    return this.config.get<string>('NODE_ENV') === 'production';
   }
 
   getFrontendUrl(): string {
