@@ -143,7 +143,7 @@ export class AuthService {
       httpOnly: true,
       maxAge: 10 * 60 * 1000,
       path: '/api/v1/auth',
-      sameSite: 'lax',
+      sameSite: this.isProduction() ? 'none' : 'lax',
       secure: this.config.get<string>('NODE_ENV') === 'production',
     };
   }
