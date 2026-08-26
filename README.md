@@ -82,7 +82,7 @@ Hoặc tạo lịch trình cho điểm đến đã chọn trước khi đến n�
 ```bash
 curl -X POST http://localhost:3000/api/v1/itinerary/generate \\
   -H 'Content-Type: application/json' \\
-  -d '{"destination":"Đà Lạt, Lâm Đồng","packages":["foodie","relax"],"durationDays":2}'
+  -d '{"destination":"Đà Lạt, Lâm Đồng","packages":["foodie","relax"],"durationDays":2,"startDate":"2026-12-30"}'
 ```
 
 Contract response được định nghĩa tại `src/shared/interfaces/itinerary.interface.ts`.

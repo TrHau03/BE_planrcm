@@ -126,4 +126,39 @@ describe('ItineraryService', () => {
       InternalServerErrorException,
     );
   });
+
+  it('anchors every itinerary day to the selected departure date', () => {
+    const dated = (
+      service as unknown as {
+        applyStartDate: (
+          itinerary: {
+            destination: string;
+            totalDays: number;
+            theme: string[];
+            days: Array<{ dayNumber: number; activities: unknown[] }>;
+          },
+          startDate?: string,
+        ) => { startDate?: string; days: Array<{ date?: string }> };
+      }
+    ).applyStartDate(
+      {
+        destination: 'Đà Lạt',
+        totalDays: 3,
+        theme: [],
+        days: [
+          { dayNumber: 1, activities: [] },
+          { dayNumber: 2, activities: [] },
+          { dayNumber: 3, activities: [] },
+        ],
+      },
+      '2026-12-30',
+    );
+
+    expect(dated.startDate).toBe('2026-12-30');
+    expect(dated.days.map((day) => day.date)).toEqual([
+      '2026-12-30',
+      '2026-12-31',
+      '2027-01-01',
+    ]);
+  });
 });

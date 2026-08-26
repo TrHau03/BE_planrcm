@@ -1,5 +1,6 @@
 import {
   HttpException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -49,10 +50,37 @@ const MARKET_ACTIVITY_LOCKS_COLLECTION = 'marketPlanActivityLocks';
 
 function isEditableItinerary(value: ItineraryResponse): boolean {
   return (
-    typeof value.destination === 'string' && value.destination.trim().length >= 2 &&
-    Number.isInteger(value.totalDays) && value.totalDays >= 1 && value.totalDays <= 7 &&
-    Array.isArray(value.theme) && Array.isArray(value.days) && value.days.length === value.totalDays &&
-    value.days.every((day, index) => day.dayNumber === index + 1 && Array.isArray(day.activities))
+    typeof value.destination === 'string' &&
+    value.destination.trim().length >= 2 &&
+    Number.isInteger(value.totalDays) &&
+    value.totalDays >= 1 &&
+    value.totalDays <= 7 &&
+    (value.startDate === undefined || isValidDateOnly(value.startDate)) &&
+    (value.budgetMin === undefined ||
+      (Number.isFinite(value.budgetMin) && value.budgetMin >= 0)) &&
+    (value.budgetMax === undefined ||
+      (Number.isFinite(value.budgetMax) && value.budgetMax >= 0)) &&
+    (value.budgetMin === undefined ||
+      value.budgetMax === undefined ||
+      value.budgetMin <= value.budgetMax) &&
+    Array.isArray(value.theme) &&
+    Array.isArray(value.days) &&
+    value.days.length === value.totalDays &&
+    value.days.every(
+      (day, index) =>
+        day.dayNumber === index + 1 && Array.isArray(day.activities),
+    )
+  );
+}
+
+function isValidDateOnly(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return (
+    !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
   );
 }
 
@@ -116,7 +144,12 @@ export class PlansService {
 
   async findOneForUser(userId: string, planId: string): Promise<SavedPlan> {
     try {
-      const snapshot = await this.getFirestore().collection('users').doc(userId).collection('plans').doc(planId).get();
+      const snapshot = await this.getFirestore()
+        .collection('users')
+        .doc(userId)
+        .collection('plans')
+        .doc(planId)
+        .get();
       if (!snapshot.exists) {
         throw new NotFoundException('Không tìm thấy plan riêng của bạn.');
       }
@@ -126,13 +159,21 @@ export class PlansService {
     }
   }
 
-  async updateItinerary(user: AuthenticatedUser, planId: string, itinerary: ItineraryResponse): Promise<SavedPlan> {
+  async updateItinerary(
+    user: AuthenticatedUser,
+    planId: string,
+    itinerary: ItineraryResponse,
+  ): Promise<SavedPlan> {
     if (!isEditableItinerary(itinerary)) {
       throw new HttpException('Dữ liệu lịch trình không hợp lệ.', 400);
     }
     try {
       const firestore = this.getFirestore();
-      const reference = firestore.collection('users').doc(user.id).collection('plans').doc(planId);
+      const reference = firestore
+        .collection('users')
+        .doc(user.id)
+        .collection('plans')
+        .doc(planId);
       const snapshot = await reference.get();
       if (!snapshot.exists) {
         throw new NotFoundException('Không tìm thấy plan cần cập nhật.');
@@ -141,7 +182,10 @@ export class PlansService {
       const batch = firestore.batch();
       batch.update(reference, { itinerary, updatedAt: Timestamp.now() });
       if (storedPlan.visibility === 'public') {
-        batch.update(firestore.collection(MARKET_PLANS_COLLECTION).doc(planId), { itinerary });
+        batch.update(
+          firestore.collection(MARKET_PLANS_COLLECTION).doc(planId),
+          { itinerary },
+        );
       }
       await batch.commit();
       return { ...this.toSavedPlan(planId, storedPlan), itinerary };
@@ -150,52 +194,118 @@ export class PlansService {
     }
   }
 
-  async updatePublicItinerary(user: AuthenticatedUser, planId: string, itinerary: ItineraryResponse): Promise<PublicPlan> {
-    if (!isEditableItinerary(itinerary)) throw new HttpException('Dữ liệu lịch trình không hợp lệ.', 400);
+  async updatePublicItinerary(
+    user: AuthenticatedUser,
+    planId: string,
+    itinerary: ItineraryResponse,
+  ): Promise<PublicPlan> {
+    if (!isEditableItinerary(itinerary))
+      throw new HttpException('Dữ liệu lịch trình không hợp lệ.', 400);
     try {
       const firestore = this.getFirestore();
-      const reference = firestore.collection(MARKET_PLANS_COLLECTION).doc(planId);
+      const reference = firestore
+        .collection(MARKET_PLANS_COLLECTION)
+        .doc(planId);
       const snapshot = await reference.get();
-      if (!snapshot.exists) throw new NotFoundException('Plan Market không còn tồn tại.');
+      if (!snapshot.exists)
+        throw new NotFoundException('Plan Market không còn tồn tại.');
       const source = snapshot.data() as StoredPublicPlan;
+      this.assertPublicPlanOwner(user, source);
       const batch = firestore.batch();
       batch.update(reference, { itinerary });
-      batch.update(firestore.collection('users').doc(source.userId).collection('plans').doc(planId), { itinerary, updatedAt: Timestamp.now() });
+      batch.update(
+        firestore
+          .collection('users')
+          .doc(source.userId)
+          .collection('plans')
+          .doc(planId),
+        { itinerary, updatedAt: Timestamp.now() },
+      );
       await batch.commit();
-      return { ...this.toPublicPlanSummary(planId, { ...source, itinerary }), itinerary };
-    } catch (error) { throw this.toFirestoreException(error); }
+      return {
+        ...this.toPublicPlanSummary(planId, { ...source, itinerary }),
+        itinerary,
+      };
+    } catch (error) {
+      throw this.toFirestoreException(error);
+    }
   }
 
-  async lockPublicActivity(user: AuthenticatedUser, planId: string, activityId: string, sessionId?: string) {
+  async lockPublicActivity(
+    user: AuthenticatedUser,
+    planId: string,
+    activityId: string,
+    sessionId?: string,
+  ) {
     if (!sessionId) throw new HttpException('Thiếu mã phiên chỉnh sửa.', 400);
-    const reference = this.getFirestore().collection(MARKET_ACTIVITY_LOCKS_COLLECTION).doc(`${planId}_${activityId}`);
+    await this.assertOwnsPublicPlan(user, planId);
+    const reference = this.getFirestore()
+      .collection(MARKET_ACTIVITY_LOCKS_COLLECTION)
+      .doc(`${planId}_${activityId}`);
     try {
       return await this.getFirestore().runTransaction(async (transaction) => {
         const current = await transaction.get(reference);
-        const lock = current.data() as { userId: string; sessionId: string; userName: string } | undefined;
-        if (lock && lock.userId !== user.id) throw new HttpException(`${lock.userName} đang chỉnh sửa hoạt động này.`, 409);
-        transaction.set(reference, { planId, activityId, userId: user.id, userName: user.name, sessionId, lockedAt: Timestamp.now() });
+        const lock = current.data() as
+          { userId: string; sessionId: string; userName: string } | undefined;
+        if (lock && lock.userId !== user.id)
+          throw new HttpException(
+            `${lock.userName} đang chỉnh sửa hoạt động này.`,
+            409,
+          );
+        transaction.set(reference, {
+          planId,
+          activityId,
+          userId: user.id,
+          userName: user.name,
+          sessionId,
+          lockedAt: Timestamp.now(),
+        });
         return { locked: true, activityId };
       });
-    } catch (error) { throw this.toFirestoreException(error); }
+    } catch (error) {
+      throw this.toFirestoreException(error);
+    }
   }
 
-  async unlockPublicActivity(user: AuthenticatedUser, planId: string, activityId: string, sessionId?: string) {
-    const reference = this.getFirestore().collection(MARKET_ACTIVITY_LOCKS_COLLECTION).doc(`${planId}_${activityId}`);
+  async unlockPublicActivity(
+    user: AuthenticatedUser,
+    planId: string,
+    activityId: string,
+    sessionId?: string,
+  ) {
+    await this.assertOwnsPublicPlan(user, planId);
+    const reference = this.getFirestore()
+      .collection(MARKET_ACTIVITY_LOCKS_COLLECTION)
+      .doc(`${planId}_${activityId}`);
     try {
       await this.getFirestore().runTransaction(async (transaction) => {
         const current = await transaction.get(reference);
-        const lock = current.data() as { userId: string; sessionId: string } | undefined;
-        if (lock && lock.userId === user.id && (!sessionId || lock.sessionId === sessionId)) transaction.delete(reference);
+        const lock = current.data() as
+          { userId: string; sessionId: string } | undefined;
+        if (
+          lock &&
+          lock.userId === user.id &&
+          (!sessionId || lock.sessionId === sessionId)
+        )
+          transaction.delete(reference);
       });
       return { unlocked: true, activityId };
-    } catch (error) { throw this.toFirestoreException(error); }
+    } catch (error) {
+      throw this.toFirestoreException(error);
+    }
   }
 
-  async clone(user: AuthenticatedUser, sourcePlanId: string): Promise<SavedPlan> {
+  async clone(
+    user: AuthenticatedUser,
+    sourcePlanId: string,
+  ): Promise<SavedPlan> {
     try {
       const firestore = this.getFirestore();
-      const ownReference = firestore.collection('users').doc(user.id).collection('plans').doc(sourcePlanId);
+      const ownReference = firestore
+        .collection('users')
+        .doc(user.id)
+        .collection('plans')
+        .doc(sourcePlanId);
       const ownSnapshot = await ownReference.get();
       let source: StoredPlan | StoredPublicPlan | undefined;
       let originalAuthorId: string | undefined;
@@ -204,9 +314,14 @@ export class PlansService {
         source = ownSnapshot.data() as StoredPlan;
         originalAuthorId = source.userId;
       } else {
-        const publicSnapshot = await firestore.collection(MARKET_PLANS_COLLECTION).doc(sourcePlanId).get();
+        const publicSnapshot = await firestore
+          .collection(MARKET_PLANS_COLLECTION)
+          .doc(sourcePlanId)
+          .get();
         if (!publicSnapshot.exists) {
-          throw new NotFoundException('Không tìm thấy plan để sao chép hoặc plan không còn được chia sẻ.');
+          throw new NotFoundException(
+            'Không tìm thấy plan để sao chép hoặc plan không còn được chia sẻ.',
+          );
         }
         source = publicSnapshot.data() as StoredPublicPlan;
         originalAuthorId = source.userId;
@@ -222,14 +337,21 @@ export class PlansService {
         ...(originalAuthorId ? { originalAuthorId } : {}),
         itinerary: structuredClone(source.itinerary),
       };
-      await firestore.collection('users').doc(user.id).collection('plans').doc(clone.id).set({
-        userId: clone.userId,
-        createdAt: Timestamp.fromDate(new Date(createdAt)),
-        visibility: clone.visibility,
-        clonedFromPlanId: clone.clonedFromPlanId,
-        ...(clone.originalAuthorId ? { originalAuthorId: clone.originalAuthorId } : {}),
-        itinerary: clone.itinerary,
-      } satisfies StoredPlan);
+      await firestore
+        .collection('users')
+        .doc(user.id)
+        .collection('plans')
+        .doc(clone.id)
+        .set({
+          userId: clone.userId,
+          createdAt: Timestamp.fromDate(new Date(createdAt)),
+          visibility: clone.visibility,
+          clonedFromPlanId: clone.clonedFromPlanId,
+          ...(clone.originalAuthorId
+            ? { originalAuthorId: clone.originalAuthorId }
+            : {}),
+          itinerary: clone.itinerary,
+        } satisfies StoredPlan);
 
       return clone;
     } catch (error) {
@@ -380,6 +502,30 @@ export class PlansService {
     return this.firestore;
   }
 
+  private async assertOwnsPublicPlan(user: AuthenticatedUser, planId: string) {
+    const snapshot = await this.getFirestore()
+      .collection(MARKET_PLANS_COLLECTION)
+      .doc(planId)
+      .get();
+
+    if (!snapshot.exists) {
+      throw new NotFoundException('Plan Market không còn tồn tại.');
+    }
+
+    this.assertPublicPlanOwner(user, snapshot.data() as StoredPublicPlan);
+  }
+
+  private assertPublicPlanOwner(
+    user: AuthenticatedUser,
+    plan: StoredPublicPlan,
+  ) {
+    if (plan.userId !== user.id) {
+      throw new ForbiddenException(
+        'Bạn không có quyền chỉnh sửa plan Market này.',
+      );
+    }
+  }
+
   private getFirebaseApp(projectId: string): App {
     const appName = 'planrcm';
     const existingApp = getApps().find((app) => app.name === appName);
@@ -407,8 +553,12 @@ export class PlansService {
       ...(visibility === 'public' && plan.publishedAt
         ? { publishedAt: plan.publishedAt.toDate().toISOString() }
         : {}),
-      ...(plan.clonedFromPlanId ? { clonedFromPlanId: plan.clonedFromPlanId } : {}),
-      ...(plan.originalAuthorId ? { originalAuthorId: plan.originalAuthorId } : {}),
+      ...(plan.clonedFromPlanId
+        ? { clonedFromPlanId: plan.clonedFromPlanId }
+        : {}),
+      ...(plan.originalAuthorId
+        ? { originalAuthorId: plan.originalAuthorId }
+        : {}),
       itinerary: plan.itinerary,
     };
   }
@@ -435,17 +585,21 @@ export class PlansService {
         : {}),
       totalDays: plan.itinerary.totalDays,
       theme: plan.itinerary.theme,
-      ...(plan.itinerary.durationDays ? { durationDays: plan.itinerary.durationDays } : {}),
-      ...(plan.itinerary.budgetMin !== undefined ? { budgetMin: plan.itinerary.budgetMin } : {}),
-      ...(plan.itinerary.budgetMax !== undefined ? { budgetMax: plan.itinerary.budgetMax } : {}),
+      ...(plan.itinerary.durationDays
+        ? { durationDays: plan.itinerary.durationDays }
+        : {}),
+      ...(plan.itinerary.budgetMin !== undefined
+        ? { budgetMin: plan.itinerary.budgetMin }
+        : {}),
+      ...(plan.itinerary.budgetMax !== undefined
+        ? { budgetMax: plan.itinerary.budgetMax }
+        : {}),
       ...(plan.itinerary.currency ? { currency: plan.itinerary.currency } : {}),
     };
   }
 
   private toFirestoreException(error: unknown): HttpException {
-    if (
-      error instanceof HttpException
-    ) {
+    if (error instanceof HttpException) {
       return error;
     }
 

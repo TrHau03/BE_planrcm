@@ -32,6 +32,7 @@ export interface ItineraryResponse {
   destination: string;
   totalDays: number;
   durationDays?: number;
+  startDate?: string;
   budgetMin?: number;
   budgetMax?: number;
   currency?: string;

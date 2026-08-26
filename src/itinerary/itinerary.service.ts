@@ -104,7 +104,12 @@ export class ItineraryService {
       dto.budgetMax !== undefined &&
       dto.budgetMin > dto.budgetMax
     ) {
-      throw new BadRequestException('Ngân sách tối thiểu không được lớn hơn ngân sách tối đa.');
+      throw new BadRequestException(
+        'Ngân sách tối thiểu không được lớn hơn ngân sách tối đa.',
+      );
+    }
+    if (dto.startDate && !isValidDateOnly(dto.startDate)) {
+      throw new BadRequestException('Ngày khởi hành không hợp lệ.');
     }
     const apiKey = this.config.get<string>('GEMINI_API_KEY');
     const modelName =
@@ -162,7 +167,7 @@ export class ItineraryService {
       selectedDestination,
     );
     const itineraryWithConstraints: ItineraryResponse = {
-      ...itinerary,
+      ...this.applyStartDate(itinerary, dto.startDate),
       durationDays: dto.durationDays,
       ...(dto.budgetMin !== undefined ? { budgetMin: dto.budgetMin } : {}),
       ...(dto.budgetMax !== undefined ? { budgetMax: dto.budgetMax } : {}),
@@ -173,7 +178,10 @@ export class ItineraryService {
       return itineraryWithConstraints;
     }
 
-    const savedPlan = await this.plansService.save(user, itineraryWithConstraints);
+    const savedPlan = await this.plansService.save(
+      user,
+      itineraryWithConstraints,
+    );
 
     return { ...itineraryWithConstraints, savedPlanId: savedPlan.id };
   }
@@ -188,6 +196,8 @@ export class ItineraryService {
       budgetMin,
       budgetMax,
       currency,
+      startDate,
+      locale = 'vi',
     }: GenerateItineraryDto,
     selectedDestination?: ResolvedPlace,
     currentLocation?: ResolvedPlace,
@@ -207,15 +217,21 @@ export class ItineraryService {
       budgetMin !== undefined || budgetMax !== undefined
         ? `Ngân sách mục tiêu: ${formatBudgetConstraint(budgetMin, budgetMax, currency)}. Đây là ràng buộc định hướng, không được hứa hẹn tổng chi phí chính xác. Chọn hoạt động, quán ăn, điểm tham quan và cách di chuyển phù hợp mức chi này.`
         : 'Không có ngân sách mục tiêu; hãy đề xuất mức chi tiêu hợp lý và nêu rõ đây là ước tính.';
+    const departureContext = startDate
+      ? `Ngày khởi hành: ${startDate}. Ngày 1 của lịch trình bắt đầu vào ngày này; hãy ưu tiên các hoạt động phù hợp với thứ trong tuần nếu có thông tin.`
+      : 'Người dùng chưa chọn ngày khởi hành.';
 
     return [
       destinationContext,
       `Thời gian: ${durationDays} ngày. Yêu cầu đặc biệt (Packages): ${requestedPackages}. Hãy tính toán thời gian di chuyển hợp lý.`,
+      departureContext,
       budgetContext,
       'Trả về đúng một JSON object theo ItineraryResponse với destination, totalDays, theme và days.',
       `totalDays phải bằng ${durationDays}; days phải có đúng ${durationDays} phần tử, được đánh số từ 1.`,
       'Mỗi activity phải có id dạng chuỗi riêng, time theo HH:mm, title, description, type là food/sightseeing/relax/transport và locationName. locationName phải là tên một địa điểm cụ thể kèm thành phố/tỉnh để Gemini đối chiếu, ví dụ "Bánh khọt Gốc Vú Sữa, Vũng Tàu"; tránh các mô tả chung chung như "trung tâm thành phố". Backend sẽ tự gán UUID, tọa độ, URL mở bản đồ và nguồn dữ liệu Gemini.',
-      'Viết nội dung bằng tiếng Việt. Không thêm markdown hay bất kỳ văn bản nào ngoài JSON.',
+      locale === 'en'
+        ? 'Write every human-readable value in English. Do not add markdown or any text outside the JSON.'
+        : 'Viết nội dung bằng tiếng Việt. Không thêm markdown hay bất kỳ văn bản nào ngoài JSON.',
     ].join('\n\n');
   }
 
@@ -276,6 +292,24 @@ export class ItineraryService {
       })),
     };
   }
+
+  private applyStartDate(
+    itinerary: ItineraryResponse,
+    startDate?: string,
+  ): ItineraryResponse {
+    if (!startDate) {
+      return itinerary;
+    }
+
+    return {
+      ...itinerary,
+      startDate,
+      days: itinerary.days.map((day, index) => ({
+        ...day,
+        date: addDays(startDate, index),
+      })),
+    };
+  }
 }
 
 function formatBudgetConstraint(
@@ -284,7 +318,8 @@ function formatBudgetConstraint(
   currency?: string,
 ): string {
   const unit = currency ?? 'VND';
-  if (min !== undefined && max !== undefined) return `${min.toLocaleString('vi-VN')} – ${max.toLocaleString('vi-VN')} ${unit}`;
+  if (min !== undefined && max !== undefined)
+    return `${min.toLocaleString('vi-VN')} – ${max.toLocaleString('vi-VN')} ${unit}`;
   if (min !== undefined) return `từ ${min.toLocaleString('vi-VN')} ${unit}`;
   return `tối đa ${(max ?? 0).toLocaleString('vi-VN')} ${unit}`;
 }
@@ -337,6 +372,23 @@ const TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 
 function normalizeDestination(destination: string): string {
   return destination.replace(/\s+/g, ' ').trim().toLocaleLowerCase('vi-VN');
+}
+
+function isValidDateOnly(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return (
+    !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+  );
+}
+
+function addDays(value: string, amount: number): string {
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + amount));
+  return date.toISOString().slice(0, 10);
 }
 
 function createGoogleMapsUrl(locationName: string): string {

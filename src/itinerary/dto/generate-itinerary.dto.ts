@@ -2,6 +2,7 @@ import { Transform, Type } from 'class-transformer';
 import {
   ArrayUnique,
   IsArray,
+  IsIn,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -59,6 +60,12 @@ export class GenerateItineraryDto {
   durationDays = 2;
 
   @IsOptional()
+  @Transform(({ value }) => trimString(value))
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  startDate?: string;
+
+  @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
@@ -78,6 +85,10 @@ export class GenerateItineraryDto {
   @IsString()
   @Matches(/^[A-Z]{3}$/)
   currency?: string;
+
+  @IsOptional()
+  @IsIn(['vi', 'en'])
+  locale?: 'vi' | 'en';
 }
 
 function trimString(value: unknown): unknown {
