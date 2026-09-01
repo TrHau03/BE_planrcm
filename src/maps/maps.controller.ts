@@ -4,6 +4,7 @@ import { PlaceAutocompleteQueryDto } from './dto/place-autocomplete-query.dto';
 import { PlaceDetailsQueryDto } from './dto/place-details-query.dto';
 import { ReverseGeocodeQueryDto } from './dto/reverse-geocode-query.dto';
 import { RouteMatrixDto } from './dto/route-matrix.dto';
+import { EstimateCostsDto } from './dto/estimate-costs.dto';
 import { MapsService } from './maps.service';
 
 @Controller('maps')
@@ -37,5 +38,11 @@ export class MapsController {
   @Throttle({ default: { limit: 8, ttl: 60_000 } })
   routeMatrix(@Body() dto: RouteMatrixDto) {
     return this.mapsService.computeRouteMatrix(dto.origin, dto.destinations);
+  }
+
+  @Post('costs/estimate')
+  @Throttle({ default: { limit: 4, ttl: 60_000 } })
+  estimateCosts(@Body() dto: EstimateCostsDto) {
+    return this.mapsService.estimateActivityCosts(dto);
   }
 }

@@ -27,3 +27,16 @@ export interface RouteDistance {
   durationSeconds: number;
   source: LocationDataSource;
 }
+
+export interface ActivityCostEstimate {
+  activityId: string;
+  ticket: number;
+  food: number;
+  transport: number;
+  other: number;
+  currency: string;
+  source: 'gemini';
+  confidence: 'low' | 'medium' | 'high';
+  note: string;
+  updatedAt: string;
+}

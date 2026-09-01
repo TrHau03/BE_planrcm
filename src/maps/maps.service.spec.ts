@@ -88,4 +88,48 @@ describe('MapsService', () => {
     ]);
     expect(generateAiJson).toHaveBeenCalledTimes(1);
   });
+
+  it('returns categorized trip costs for the full traveler group', async () => {
+    const service = createService();
+    mockGemini(service, {
+      estimates: [
+        {
+          activityId: 'activity-1',
+          ticket: 200000,
+          food: 300000,
+          transport: 50000,
+          other: 0,
+          confidence: 'medium',
+          note: 'Giá tham khảo cho hai khách.',
+        },
+      ],
+    });
+
+    const estimates = await service.estimateActivityCosts({
+      destination: 'Đà Lạt',
+      currency: 'VND',
+      travelers: 2,
+      activities: [
+        {
+          id: 'activity-1',
+          title: 'Tham quan',
+          type: 'sightseeing',
+          locationName: 'Đà Lạt',
+        },
+      ],
+    });
+
+    expect(estimates).toEqual([
+      expect.objectContaining({
+        activityId: 'activity-1',
+        ticket: 200000,
+        food: 300000,
+        transport: 50000,
+        other: 0,
+        currency: 'VND',
+        source: 'gemini',
+        confidence: 'medium',
+      }),
+    ]);
+  });
 });

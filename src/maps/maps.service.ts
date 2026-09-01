@@ -4,15 +4,18 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { randomUUID } from 'node:crypto';
 import { ItineraryResponse } from '../shared/interfaces';
 import {
+  ActivityCostEstimate,
   PlaceSuggestion,
   ResolvedPlace,
   RouteDistance,
   RouteMatrixDestination,
 } from './maps.types';
+import { EstimateCostsDto } from './dto/estimate-costs.dto';
 
 type AiPlacesResponse = { places?: unknown[] };
 type AiPlaceResponse = { place?: unknown };
 type AiRouteResponse = { routes?: unknown[] };
+type AiCostResponse = { estimates?: unknown[] };
 
 const GEMINI_GEO_SYSTEM_INSTRUCTION =
   'Bạn là hệ thống địa điểm và ước lượng quãng đường cho ứng dụng lập lịch du lịch. Chỉ trả về JSON hợp lệ, không markdown hay văn bản ngoài JSON. Tọa độ, địa chỉ và quãng đường có thể là ước lượng; luôn trung thực về giới hạn này.';
@@ -91,6 +94,67 @@ export class MapsService {
     return this.withGemini(() =>
       this.computeRouteMatrixWithGemini(origin, destinations),
     );
+  }
+
+  async estimateActivityCosts(
+    dto: EstimateCostsDto,
+  ): Promise<ActivityCostEstimate[]> {
+    if (dto.activities.length === 0) {
+      return [];
+    }
+
+    return this.withGemini(async () => {
+      const response = await this.generateAiJson<AiCostResponse>(
+        [
+          'Ước tính chi phí du lịch hiện tại cho các hoạt động dưới đây.',
+          `Điểm đến: ${JSON.stringify(dto.destination)}. Ngày khởi hành: ${dto.startDate ?? 'chưa xác định'}.`,
+          `Số khách: ${dto.travelers}. Tiền tệ bắt buộc: ${dto.currency}.`,
+          `Hoạt động: ${JSON.stringify(dto.activities)}.`,
+          'Với mỗi id, trả ticket, food, transport, other là TỔNG chi phí cho toàn bộ số khách, không phải mỗi người.',
+          'Dựa trên mức giá công khai thường gặp của địa điểm/khu vực và loại hoạt động. Nếu không có giá cụ thể, dùng khoảng giá địa phương hợp lý nhưng phải hạ confidence.',
+          'Không hứa hẹn giá chính xác. note phải ngắn gọn, nói rõ giả định chính hoặc khoản nào cần kiểm tra lại.',
+          'Trả đúng dạng {"estimates":[{"activityId":"...","ticket":number,"food":number,"transport":number,"other":number,"confidence":"low|medium|high","note":"..."}]}.',
+          'Mọi chi phí phải là số không âm, làm tròn phù hợp với tiền tệ và trả đủ tất cả id.',
+        ].join('\n'),
+      );
+      const requestedIds = new Set(dto.activities.map((activity) => activity.id));
+      const now = new Date().toISOString();
+
+      return (response.estimates ?? []).flatMap((candidate) => {
+        const record = asRecord(candidate);
+        const activityId = asNonEmptyString(record?.activityId);
+        const ticket = asNonNegativeNumber(record?.ticket);
+        const food = asNonNegativeNumber(record?.food);
+        const transport = asNonNegativeNumber(record?.transport);
+        const other = asNonNegativeNumber(record?.other);
+        const confidence = record?.confidence;
+
+        if (
+          !activityId ||
+          !requestedIds.has(activityId) ||
+          ticket === undefined ||
+          food === undefined ||
+          transport === undefined ||
+          other === undefined ||
+          !['low', 'medium', 'high'].includes(String(confidence))
+        ) {
+          return [];
+        }
+
+        return [{
+          activityId,
+          ticket,
+          food,
+          transport,
+          other,
+          currency: dto.currency.toUpperCase(),
+          source: 'gemini' as const,
+          confidence: confidence as 'low' | 'medium' | 'high',
+          note: asNonEmptyString(record?.note) ?? 'Giá tham khảo, nên kiểm tra lại trước chuyến đi.',
+          updatedAt: now,
+        }];
+      });
+    });
   }
 
   async enrichItineraryLocations(
@@ -359,6 +423,12 @@ function asPositiveNumber(value: unknown): number | undefined {
   const number = asNumber(value);
 
   return number !== undefined && number > 0 ? number : undefined;
+}
+
+function asNonNegativeNumber(value: unknown): number | undefined {
+  const number = asNumber(value);
+
+  return number !== undefined && number >= 0 ? Math.round(number) : undefined;
 }
 
 function isLatitude(value: number | undefined): value is number {
