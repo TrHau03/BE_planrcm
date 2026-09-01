@@ -70,8 +70,7 @@ export class AuthController {
         this.authService.getOAuthStateCookieOptions(),
       );
       const returnTo = request.cookies?.[GOOGLE_OAUTH_RETURN_TO_COOKIE] as
-        | string
-        | undefined;
+        string | undefined;
       response.clearCookie(
         GOOGLE_OAUTH_RETURN_TO_COOKIE,
         this.authService.getOAuthStateCookieOptions(),

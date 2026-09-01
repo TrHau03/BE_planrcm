@@ -117,7 +117,9 @@ export class MapsService {
           'Mọi chi phí phải là số không âm, làm tròn phù hợp với tiền tệ và trả đủ tất cả id.',
         ].join('\n'),
       );
-      const requestedIds = new Set(dto.activities.map((activity) => activity.id));
+      const requestedIds = new Set(
+        dto.activities.map((activity) => activity.id),
+      );
       const now = new Date().toISOString();
 
       return (response.estimates ?? []).flatMap((candidate) => {
@@ -141,18 +143,22 @@ export class MapsService {
           return [];
         }
 
-        return [{
-          activityId,
-          ticket,
-          food,
-          transport,
-          other,
-          currency: dto.currency.toUpperCase(),
-          source: 'gemini' as const,
-          confidence: confidence as 'low' | 'medium' | 'high',
-          note: asNonEmptyString(record?.note) ?? 'Giá tham khảo, nên kiểm tra lại trước chuyến đi.',
-          updatedAt: now,
-        }];
+        return [
+          {
+            activityId,
+            ticket,
+            food,
+            transport,
+            other,
+            currency: dto.currency.toUpperCase(),
+            source: 'gemini' as const,
+            confidence: confidence as 'low' | 'medium' | 'high',
+            note:
+              asNonEmptyString(record?.note) ??
+              'Giá tham khảo, nên kiểm tra lại trước chuyến đi.',
+            updatedAt: now,
+          },
+        ];
       });
     });
   }

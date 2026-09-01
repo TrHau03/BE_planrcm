@@ -32,7 +32,10 @@ export class PlansController {
   }
 
   @Get(':planId')
-  findOne(@Param('planId') planId: string, @Req() request: AuthenticatedRequest) {
+  findOne(
+    @Param('planId') planId: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
     return this.plansService.findOneForUser(request.user!.id, planId);
   }
 
@@ -42,7 +45,11 @@ export class PlansController {
     @Body() dto: UpdatePlanDto,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.plansService.updateItinerary(request.user!, planId, dto.itinerary);
+    return this.plansService.updateItinerary(
+      request.user!,
+      planId,
+      dto.itinerary,
+    );
   }
 
   @Patch(':planId/visibility')

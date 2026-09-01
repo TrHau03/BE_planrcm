@@ -200,15 +200,25 @@ describe('PlansService', () => {
       visibility: 'public' as const,
       itinerary,
     };
-    const sourceReference = { get: jest.fn().mockResolvedValue({ exists: true, data: () => sourcePlan }) };
+    const sourceReference = {
+      get: jest
+        .fn()
+        .mockResolvedValue({ exists: true, data: () => sourcePlan }),
+    };
     const clonedReference = { set: jest.fn().mockResolvedValue(undefined) };
     const plansCollection = {
-      doc: jest.fn((id: string) => (id === 'source-plan' ? sourceReference : clonedReference)),
+      doc: jest.fn((id: string) =>
+        id === 'source-plan' ? sourceReference : clonedReference,
+      ),
     };
     const firestore = {
       collection: jest.fn((name: string) => {
         if (name === 'users') {
-          return { doc: jest.fn(() => ({ collection: jest.fn(() => plansCollection) })) };
+          return {
+            doc: jest.fn(() => ({
+              collection: jest.fn(() => plansCollection),
+            })),
+          };
         }
         return { doc: jest.fn() };
       }),
@@ -226,11 +236,13 @@ describe('PlansService', () => {
       itinerary,
     });
     expect(clone.id).not.toBe('source-plan');
-    expect(clonedReference.set).toHaveBeenCalledWith(expect.objectContaining({
-      visibility: 'private',
-      clonedFromPlanId: 'source-plan',
-      itinerary,
-    }));
+    expect(clonedReference.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        visibility: 'private',
+        clonedFromPlanId: 'source-plan',
+        itinerary,
+      }),
+    );
     expect(sourceReference.get).toHaveBeenCalledTimes(1);
   });
 });
